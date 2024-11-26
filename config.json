@@ -1,0 +1,12 @@
+[
+  {
+    "label": "test",
+    "start": 1,
+    "width": 8
+  },
+  {
+    "label": "test2",
+    "start": 9,
+    "width": 4
+  }
+]
