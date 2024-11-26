@@ -55,7 +55,14 @@ class DataFrameApp(App):
                 start = int(key["start"]) - 1
                 width = int(key["width"])
                 col_spec.append((start, start + width))
-            df = pd.read_fwf(self.file, colspecs=col_spec, nrows=self.num_rows, names=None)
+            df = pd.read_fwf(
+                self.file,
+                colspecs=col_spec,
+                nrows=self.num_rows,
+                names=None,
+                dtype=str,
+            )
+            df.fillna("", inplace=True)
             df.columns = labels
             return df
         except Exception as e:
@@ -71,7 +78,7 @@ class DataFrameApp(App):
 
     def refresh_table(self, config_file, file, num_rows):
         table = self.query_one(DataTable)
-        table.clear()
+        table.clear(columns=True)
         self.config_file = config_file
         self.file = file
         self.num_rows = num_rows
@@ -82,7 +89,9 @@ class DataFrameApp(App):
 def watch_config_file(app, config_file, file, num_rows):
     event_handler = ConfigFileHandler(app, config_file, file, num_rows)
     observer = Observer()
-    observer.schedule(event_handler, path=str(Path(config_file).parent), recursive=False)
+    observer.schedule(
+        event_handler, path=str(Path(config_file).parent), recursive=False
+    )
     observer.start()
     try:
         while True:
@@ -110,11 +119,12 @@ def main():
     config = args.config
     num_lines = args.num_lines or 5
     app = DataFrameApp(config, file, num_lines)
-    watcher_thread = Thread(target=watch_config_file, args=(app, config, file, num_lines), daemon=True)
+    watcher_thread = Thread(
+        target=watch_config_file, args=(app, config, file, num_lines), daemon=True
+    )
     watcher_thread.start()
     app.run()
 
 
 if __name__ == "__main__":
     main()
-
