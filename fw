@@ -3,59 +3,93 @@
 import argparse
 import pandas as pd
 import json
+from pathlib import Path
+from threading import Thread
+from time import sleep
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from pathlib import Path
-from time import sleep, time
-import threading
-from rich.console import Console
-from rich.table import Table
+from textual.app import App, ComposeResult
+from textual.widgets import DataTable, Footer, Header
 
-def pretty_print_dataframe(df):
-    console = Console()
-    table = Table(show_lines=True)
-    for column in df.columns:
-        table.add_column(column)
-    for _, row in df.iterrows():
-        table.add_row(*map(str, row))
-    console.print(table)
 
 class ConfigFileHandler(FileSystemEventHandler):
-    def __init__(self, config_file, file, num_rows):
+    def __init__(self, app, config_file, file, num_rows):
+        self.app = app
         self.config_file = Path(config_file).resolve()
         self.file = file
         self.num_rows = num_rows
-        self.last_modified_time = 0
-        parse_with_pandas(self.config_file, self.file, self.num_rows)
-        self.lock = threading.Lock()  # Ensure thread safety
 
-    def on_any_event(self, event):
+    def on_modified(self, event):
         if Path(event.src_path).resolve() == self.config_file:
-            if event.event_type in ["modified", "created", "moved"]:
-                with self.lock:
-                    current_time = time()
-                    if current_time - self.last_modified_time > 0.5:
-                        self.last_modified_time = current_time
-                        print("\nConfig file changed. Reloading...\n")
-                        parse_with_pandas(self.config_file, self.file, self.num_rows)
+            print("\nConfig file changed. Reloading...\n")
+            self.app.refresh_table(self.config_file, self.file, self.num_rows)
 
 
+class DataFrameApp(App):
+    def __init__(self, config_file, file, num_rows, **kwargs):
+        super().__init__(**kwargs)
+        self.config_file = config_file
+        self.file = file
+        self.num_rows = num_rows
+        self.df = self.load_dataframe()
 
-def parse_with_pandas(config_file, file, num_rows):
-    with open(config_file, "r") as c_file:
-        config = json.load(c_file)
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield DataTable()
+        yield Footer()
 
-    labels = []
-    col_spec = []
-    for key in config:
-        label = key["label"]
-        labels.append(label)
-        start = int(key["start"]) - 1
-        width = int(key["width"])
-        col_spec.append((start, start + width))
-    df = pd.read_fwf(file, colspecs=col_spec, nrows=num_rows, names=None)
-    df.columns = labels
-    pretty_print_dataframe(df)
+    def on_mount(self) -> None:
+        self.update_table()
+
+    def load_dataframe(self):
+        try:
+            with open(self.config_file, "r") as c_file:
+                config = json.load(c_file)
+
+            pd.set_option("display.show_dimensions", False)
+            labels = []
+            col_spec = []
+            for key in config:
+                label = key["label"]
+                labels.append(label)
+                start = int(key["start"]) - 1
+                width = int(key["width"])
+                col_spec.append((start, start + width))
+            df = pd.read_fwf(self.file, colspecs=col_spec, nrows=self.num_rows, names=None)
+            df.columns = labels
+            return df
+        except Exception as e:
+            print(f"Error loading DataFrame: {e}")
+            return pd.DataFrame()
+
+    def update_table(self):
+        table = self.query_one(DataTable)
+        for column in self.df.columns:
+            table.add_column(column)
+        for _, row in self.df.iterrows():
+            table.add_row(*map(str, row))
+
+    def refresh_table(self, config_file, file, num_rows):
+        table = self.query_one(DataTable)
+        table.clear()
+        self.config_file = config_file
+        self.file = file
+        self.num_rows = num_rows
+        self.df = self.load_dataframe()
+        self.update_table()
+
+
+def watch_config_file(app, config_file, file, num_rows):
+    event_handler = ConfigFileHandler(app, config_file, file, num_rows)
+    observer = Observer()
+    observer.schedule(event_handler, path=str(Path(config_file).parent), recursive=False)
+    observer.start()
+    try:
+        while True:
+            sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
 
 
 def main():
@@ -75,20 +109,12 @@ def main():
     file = args.file
     config = args.config
     num_lines = args.num_lines or 5
-
-    event_handler = ConfigFileHandler(config, file, num_lines)
-    observer = Observer()
-    observer.schedule(event_handler, path=str(Path(config).parent), recursive=False)
-
-    observer.start()
-
-    try:
-        while True:
-            sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+    app = DataFrameApp(config, file, num_lines)
+    watcher_thread = Thread(target=watch_config_file, args=(app, config, file, num_lines), daemon=True)
+    watcher_thread.start()
+    app.run()
 
 
 if __name__ == "__main__":
     main()
+
