@@ -1,0 +1,36 @@
+#dialog {
+    height: 15%;
+    margin: 0;
+    color: $text;
+    padding: 0;
+}
+
+#dialog Container {
+    height: 1fr;
+    text-style: bold;
+    width: 1fr;
+}
+
+.buttons {
+    width: 100%;
+    height: 100%;
+    dock: bottom;
+}
+
+.row-item {
+    width: 100%;
+    height: 100%;
+}
+
+.sheet-selector {
+    width: 50%;
+    height: 100%; 
+}
+
+#content-switcher {
+    height: 80%;
+    margin: 0;
+    background: $panel;
+    color: $text;
+    padding: 0; 
+}

@@ -9,8 +9,8 @@ from time import sleep
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header
-
+from textual.containers import Horizontal, Container
+from textual.widgets import DataTable, ContentSwitcher, Button, ListView, ListItem, Input
 
 class ConfigFileHandler(FileSystemEventHandler):
     def __init__(self, app, config_file, file, num_rows):
@@ -26,6 +26,7 @@ class ConfigFileHandler(FileSystemEventHandler):
 
 
 class DataFrameApp(App):
+    CSS_PATH = "dom.tcss"
     def __init__(self, config_file, file, num_rows, **kwargs):
         super().__init__(**kwargs)
         self.config_file = config_file
@@ -34,12 +35,48 @@ class DataFrameApp(App):
         self.df = self.load_dataframe()
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        yield DataTable()
-        yield Footer()
+        yield Container(
+            Horizontal(
+                Button("Data", id="data-table", classes="sheet-selector"),
+                Button("Config", id="config-editor", classes="sheet-selector"),
+                classes="buttons",
+            ),
+            id="dialog",
+        )
+        with ContentSwitcher(initial="data-table", id="content-switcher"):
+            yield DataTable(id="data-table")
+            yield ListView(id="config-editor")
 
     def on_mount(self) -> None:
         self.update_table()
+        self.display_config()
+
+    def save_config_row(self):
+        new_rows = []
+        list_view = self.query_one(ListView)
+        for idx, li in enumerate(list_view.children):
+            label_input = li.query_one(f"#label_{idx}", Input)
+            start_input = li.query_one(f"#start_{idx}", Input)
+            width_input = li.query_one(f"#width_{idx}", Input)
+            new_rows.append({
+                "label": label_input.value,
+                "start": int(start_input.value),
+                "width": int(width_input.value),
+            })
+        with open(self.config_file, "w") as c_file:
+            json.dump(new_rows, c_file, indent=2)
+
+    async def on_button_pressed(self, event):
+        button_id = event.button.id
+        if button_id.startswith("save_"):
+            self.save_config_row()
+        else:
+            switcher = self.query_one(ContentSwitcher)
+
+            if button_id == "data-table":
+                switcher.current = "data-table"
+            elif button_id == "config-editor":
+                switcher.current = "config-editor"
 
     def load_dataframe(self):
         try:
@@ -85,6 +122,29 @@ class DataFrameApp(App):
         self.df = self.load_dataframe()
         self.update_table()
 
+    def display_config(self):
+        data_config = self.query_one(ListView)
+        data_config.clear()
+        try:
+            with open(self.config_file, "r") as c_file:
+                config = json.load(c_file)
+        except Exception as e:
+            config = []
+
+        for i, entry in enumerate(config):
+            list_item = ListItem(
+                Input(entry.get("label", ""), placeholder="Label", id=f"label_{i}", classes="row-item"),
+                Input(str(entry.get("start", "")), placeholder="Start", type="integer", id=f"start_{i}", classes="row-item"),
+                Input(str(entry.get("width", "")), placeholder="Width", type="integer", id=f"width_{i}", classes="row-item"),
+                Button("Save", id=f"save_{i}", classes="row-item"),
+                id=f"config_row_{i}",
+            )
+            list_item.styles.layout = "grid"
+            list_item.styles.width = "1fr"
+            list_item.styles.grid_size_columns = 4
+            list_item.styles.overflow_x = "auto"
+            data_config.append(list_item)
+        return data_config
 
 def watch_config_file(app, config_file, file, num_rows):
     event_handler = ConfigFileHandler(app, config_file, file, num_rows)
